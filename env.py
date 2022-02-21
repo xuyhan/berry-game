@@ -1,16 +1,9 @@
 import pygame
 from PIL import Image
 import random
-
-NOTHING = 0
-MOVE_UP = 1
-MOVE_DOWN = 2
-MOVE_LEFT = 3
-MOVE_RIGHT = 4
-SHOOT_UP = 5
-SHOOT_DOWN = 6
-SHOOT_LEFT = 7
-SHOOT_RIGHT = 8
+from actions import *
+import numpy as np
+import cv2
 
 def rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
     if not (x0 <= x1 <= x0 + w0 or x1 <= x0 <= x1 + w1):
@@ -19,19 +12,61 @@ def rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
         return False
     return True
 
-class View:
-    def __init__(self, screen, screen_width, screen_height, player):
-        self.screen = screen
-        self.screen_height = screen_height
-        self.screen_width = screen_width
-        self.player = player
+class Policy:
+    def get_action(self, agent, env):
+        pass
 
-        self.factor = 1 / 64 # 64 pixels on screen = 1 world units
+class NaivePolicy:
+    def __init__(self):
+        self.default_move_count = 20
+        self.default_move = MOVE_LEFT
+
+    def get_action(self, agent, env):
+        min_dist = float('inf')
+        best = None
+        for c in env.collectibles:
+            if c.is_good:
+                dist = (c.x - agent.x) ** 2 + (c.y - agent.y) ** 2
+                if agent.can_see(c) and dist < min_dist:
+                    min_dist = dist
+                    best = c
+
+        if best is None:
+            self.default_move_count -= 1
+            if self.default_move_count == 0:
+                self.default_move = [MOVE_LEFT, MOVE_DOWN, MOVE_UP, MOVE_RIGHT][random.randint(0, 3)]
+                self.default_move_count = 20
+
+            return self.default_move
+
+        if best.x < agent.x and not (best.x <= agent.x <= best.x + best.size):
+            return MOVE_LEFT
+        if best.x > agent.x and not (agent.x <= best.x <= agent.x + agent.size):
+            return MOVE_RIGHT
+        if best.y < agent.y and not (best.y <= agent.y <= best.y + best.size):
+            return MOVE_UP
+        if best.y > agent.y and not (agent.y <= best.y <= agent.y + agent.size):
+            return MOVE_DOWN
+
+        return NOTHING
+
+class View:
+    def __init__(self, player):
+        self.factor = 1 / 32 # 64 pixels on screen = 1 world units
+        self.player = player
+        self.screen_height = int(player.vis_range / self.factor)
+        self.screen_width = int(player.vis_range / self.factor)
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        self.player_center = False
 
     def get_x(self):
+        if not self.player_center:
+            return 0
         return self.player.x - self.screen_width / 2 * self.factor + self.player.size / 2
 
     def get_y(self):
+        if not self.player_center:
+            return 0
         return self.player.y - self.screen_height / 2 * self.factor + self.player.size / 2
 
     def to_screen_coords(self, x, y):
@@ -78,14 +113,21 @@ class Bullet(Drawable):
 
 
 class Player(Drawable):
-    def __init__(self, x, y):
+    def __init__(self, name, x, y, which):
         super().__init__(x, y, size=1)
 
-        self.vis_range = 100
+        self.orig_x, self.orig_y = x, y
+        self.vis_range = 20
+        self.view = View(self)
+
         self.v_x = 0
         self.v_y = 0
+        self.name = name
 
-        self.image = pygame.image.load('./images/steve.png').convert_alpha()
+        if which == 1:
+            self.image = pygame.image.load('./images/steve.png').convert_alpha()
+        else:
+            self.image = pygame.image.load('./images/alex.png').convert_alpha()
         self.poison_overlay = pygame.image.load('./images/poison.png').convert_alpha()
 
         self.score = 0
@@ -94,6 +136,20 @@ class Player(Drawable):
         self.poison_timer = 0
         self.POISON_DURATION = 200
         self.delayed_penalties = []
+
+        self.automate = False
+        self.env = None
+        self.default_policy = NaivePolicy()
+
+    def reset(self):
+        self.x = self.orig_x
+        self.y = self.orig_y
+        self.score = 0
+        self.poisoned = False
+        self.poison_timer = 0
+        self.delayed_penalties = []
+        self.v_x = 0
+        self.v_y = 0
 
     def update(self):
         self.poison_timer = max(0, self.poison_timer - 1)
@@ -105,6 +161,9 @@ class Player(Drawable):
         while self.delayed_penalties != [] and self.delayed_penalties[0] == 0:
             self.delayed_penalties.pop(0)
             self.score -= 50
+
+        if self.automate:
+            self.env.perform_action(self, self.default_policy.get_action(self, self.env))
 
     def draw(self, view):
         super().draw(view)
@@ -125,8 +184,14 @@ class Player(Drawable):
     def punish(self, player):
         if player.poisoned:
             self.score += 200
+            player.score -= 200
         else:
             self.score -= 200
+
+    def can_see(self, entity : Drawable):
+        c_x, c_y = self.x + self.size / 2, self.y + self.size / 2
+        x0, y0 = c_x - self.vis_range / 2, c_y - self.vis_range / 2
+        return rect_intersect(x0, y0, self.vis_range, self.vis_range, entity.x, entity.y, entity.size, entity.size)
 
 class Collectible(Drawable):
     def __init__(self, x, y, size):
@@ -152,11 +217,18 @@ class World:
         self.collectibles = []
         self.projectiles = []
 
+        self.font = pygame.font.SysFont('monospace', 30)
+
+    def register_players(self, players):
+        for p in players:
+            self.players.append(p)
+            p.env = self
+
     def update(self):
         # spawning
         for i in range(self.height):
             for j in range(self.width):
-                if random.randint(0, 1000000) < 15:
+                if random.randint(0, 1000000) < 45:
                     self.spawn(i, j, random.random() < .8)
 
         # movement
@@ -222,6 +294,13 @@ class World:
         if display_score:
             pygame.display.set_caption('Score : ' + str(view.player.score))
 
+        score_board = []
+        for player in self.players:
+            score_board.append(f'{player.name} : ' + str(player.score))
+        for i, line in enumerate(score_board):
+            textsurface = self.font.render(line, True, (255, 255, 255))
+            view.screen.blit(textsurface, (30, 30 + i * 30))
+
         pygame.display.update()
 
     def perform_action(self, player, action):
@@ -249,27 +328,55 @@ class World:
             player.v_y = 0
             player.v_x = 0
 
+    def screenshot(self, view, out_w, out_h):
+        """
+        Takes a screenshot of the game , converts it to grayscale, reshapes it to size INPUT_HEIGHT, INPUT_WIDTH,
+        and returns a np.array.
+        Credits goes to https://github.com/danielegrattarola/deep-q-snake/blob/master/snake.py
+        """
+        data = pygame.image.tostring(view.screen, 'RGB')  # Take screenshot
+        image = Image.frombytes('RGB', (view.screen_width, view.screen_height), data)
+
+        image = np.asarray(image)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        return cv2.resize(image, (out_w, out_h), interpolation = cv2.INTER_AREA)
+
+        # image = image.convert('L')  # Convert to greyscale
+        # image = image.resize((out_w, out_h))
+        # matrix = np.asarray(image.getdata(), dtype=np.uint8)
+        # matrix = (matrix - 128) / (128 - 1)  # Normalize from -1 to 1
+        # return matrix.reshape(image.size[0], image.size[1])
+
+    def reset(self):
+        self.collectibles = []
+        self.projectiles = []
+
+        for player in self.players:
+            player.reset()
+
 if __name__ == '__main__':
     import time
 
     pygame.init()
-
-    screen = pygame.display.set_mode((800, 800))
+    pygame.font.init()
 
     running = True
 
-    env = World(32, 32)
-    my_player = Player(11, 11)
-    env.players = [my_player, Player(15, 15)]
+    env = World(20, 20)
 
-    view = View(screen, 800, 800, my_player)
+    my_player = Player('Alex', 0, 0, 2)
+    my_player.automate = True
 
+    cpu_player = Player('Steve', 19, 19, 1)
+    cpu_player.automate = True
+
+    env.register_players([my_player, cpu_player])
 
     while running:
         time.sleep(0.016)  # Make the game slow down
 
         env.update()
-        env.render(view, display_score=True)
+        env.render(my_player.view, display_score=True)
 
         keys = pygame.key.get_pressed()  # checking pressed keys
         if keys[pygame.K_UP]:
