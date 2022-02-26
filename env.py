@@ -117,7 +117,7 @@ class Player(Drawable):
         super().__init__(x, y, size=1)
 
         self.orig_x, self.orig_y = x, y
-        self.vis_range = 20
+        self.vis_range = 10
         self.view = View(self)
 
         self.v_x = 0
@@ -219,17 +219,32 @@ class World:
 
         self.font = pygame.font.SysFont('monospace', 30)
 
+        self.spawn_timer = 0
+
     def register_players(self, players):
         for p in players:
             self.players.append(p)
             p.env = self
 
     def update(self):
+        if len(self.collectibles) == 0:
+            x = random.randint(0, self.height - 1)
+            y = random.randint(0, self.width - 1)
+            self.spawn(x, y, True)
+
+        # self.spawn_timer = max(0, self.spawn_timer - 1)
+        # if self.spawn_timer == 0:
+        #     self.spawn_timer = 100
+        #     x = random.randint(0, self.height - 1)
+        #     y = random.randint(0, self.width - 1)
+        #     self.spawn(x, y, True)
+
         # spawning
-        for i in range(self.height):
-            for j in range(self.width):
-                if random.randint(0, 1000000) < 45:
-                    self.spawn(i, j, random.random() < .8)
+
+        # for i in range(self.height):
+        #     for j in range(self.width):
+        #         if random.randint(0, 1000000) < 45:
+        #             self.spawn(i, j, random.random() < 1)
 
         # movement
         for player in self.players:
@@ -291,15 +306,15 @@ class World:
         for projectile in self.projectiles:
             projectile.draw(view)
 
-        if display_score:
-            pygame.display.set_caption('Score : ' + str(view.player.score))
+        pygame.display.set_caption('Score : ' + str(view.player.score))
 
-        score_board = []
-        for player in self.players:
-            score_board.append(f'{player.name} : ' + str(player.score))
-        for i, line in enumerate(score_board):
-            textsurface = self.font.render(line, True, (255, 255, 255))
-            view.screen.blit(textsurface, (30, 30 + i * 30))
+        if display_score:
+            score_board = []
+            for player in self.players:
+                score_board.append(f'{player.name} : ' + str(player.score))
+            for i, line in enumerate(score_board):
+                textsurface = self.font.render(line, True, (255, 255, 255))
+                view.screen.blit(textsurface, (30, 30 + i * 30))
 
         pygame.display.update()
 
@@ -327,6 +342,9 @@ class World:
         elif action == NOTHING:
             player.v_y = 0
             player.v_x = 0
+
+    def get_score(self, player : Player):
+        return player.score
 
     def screenshot(self, view, out_w, out_h):
         """
