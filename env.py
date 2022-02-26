@@ -5,6 +5,9 @@ from actions import *
 import numpy as np
 import cv2
 
+GOOD_APPLE_SCORE = 100
+MOVE_SPEED = .6
+
 def rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
     if not (x0 <= x1 <= x0 + w0 or x1 <= x0 <= x1 + w1):
         return False
@@ -175,7 +178,7 @@ class Player(Drawable):
     def collect(self, item):
         if isinstance(item, Apple):
             if item.is_good:
-                self.score += 10
+                self.score += GOOD_APPLE_SCORE
             else:
                 self.poisoned = True
                 self.poison_timer = self.POISON_DURATION
@@ -221,16 +224,26 @@ class World:
 
         self.spawn_timer = 0
 
+        self.temp = True
+
     def register_players(self, players):
         for p in players:
             self.players.append(p)
             p.env = self
 
     def update(self):
+        for player in self.players:
+            player.score -= 1
+
         if len(self.collectibles) == 0:
-            x = random.randint(0, self.height - 1)
-            y = random.randint(0, self.width - 1)
-            self.spawn(x, y, True)
+            self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
+
+            # if self.temp:
+            #     self.spawn(self.width - 1, 0, True)
+            #     self.temp = False
+            # else:
+            #     self.spawn(0, self.height - 1, True)
+            #     self.temp = True
 
         # self.spawn_timer = max(0, self.spawn_timer - 1)
         # if self.spawn_timer == 0:
@@ -320,17 +333,17 @@ class World:
 
     def perform_action(self, player, action):
         if action == MOVE_UP:
-            player.v_y = -.3
+            player.v_y = -MOVE_SPEED
             player.v_x = 0
         elif action == MOVE_DOWN:
-            player.v_y = .3
+            player.v_y = MOVE_SPEED
             player.v_x = 0
         elif action == MOVE_LEFT:
             player.v_y = 0
-            player.v_x = -.3
+            player.v_x = -MOVE_SPEED
         elif action == MOVE_RIGHT:
             player.v_y = 0
-            player.v_x = .3
+            player.v_x = MOVE_SPEED
         elif action == SHOOT_LEFT:
             self.spawn_projectile(player.x, player.y, -1, 0, player)
         elif action == SHOOT_RIGHT:

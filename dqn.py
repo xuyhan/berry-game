@@ -10,11 +10,11 @@ import torch
 
 SIZE = 84
 NUM_ACTIONS = 5
-MEMORY_CAPACITY = 20000
-LR = 0.01
-E = 0.05
+MEMORY_CAPACITY = 30000
+LR = 0.001
+E = 0.01
 Q_NETWORK_ITERATION = 100
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 GAMMA = 0.90
 EPISODES = 1000
 FRAMES = 3000
@@ -148,9 +148,6 @@ if __name__ == '__main__':
                 # calculate reward
                 reward = env.get_score(my_player) - score
 
-                if reward < 0:
-                    print(reward)
-
                 score = env.get_score(my_player)
 
                 # if reward > 0:
@@ -179,7 +176,7 @@ if __name__ == '__main__':
 
             #cv2.imshow('CNN Input', image)
 
-
+            #
             # keys = pygame.key.get_pressed()  # checking pressed keys
             # if keys[pygame.K_UP]:
             #     env.perform_action(my_player, MOVE_UP)
