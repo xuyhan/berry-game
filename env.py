@@ -6,7 +6,8 @@ import numpy as np
 import cv2
 
 GOOD_APPLE_SCORE = 100
-MOVE_SPEED = .6
+POISON_VALUE = 1000
+MOVE_SPEED = .5
 
 def rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
     if not (x0 <= x1 <= x0 + w0 or x1 <= x0 <= x1 + w1):
@@ -163,7 +164,7 @@ class Player(Drawable):
             self.delayed_penalties[i] -= 1
         while self.delayed_penalties != [] and self.delayed_penalties[0] == 0:
             self.delayed_penalties.pop(0)
-            self.score -= 50
+            self.score -= POISON_VALUE
 
         if self.automate:
             self.env.perform_action(self, self.default_policy.get_action(self, self.env))
@@ -209,7 +210,7 @@ class Apple(Collectible):
         if is_good:
             self.image = pygame.image.load('./images/apple_red.png').convert_alpha()
         else:
-            self.image = pygame.image.load('./images/apple_blue.png').convert_alpha()
+            self.image = pygame.image.load('./images/berries.png').convert_alpha()
 
 class World:
     def __init__(self, world_width, world_height):
@@ -235,8 +236,19 @@ class World:
         for player in self.players:
             player.score -= 1
 
-        if len(self.collectibles) == 0:
-            self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
+        n = sum([1 for c in self.collectibles if c.is_good])
+        if n < 2:
+            for _ in range(2 - n):
+                self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
+
+        self.spawn_timer = max(0, self.spawn_timer - 1)
+        if self.spawn_timer == 0:
+            self.spawn_timer = 600
+            self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
+
+
+        # if sum([1 for c in self.collectibles if not c.is_good]) == 0:
+        #     self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
 
             # if self.temp:
             #     self.spawn(self.width - 1, 0, True)
@@ -245,12 +257,13 @@ class World:
             #     self.spawn(0, self.height - 1, True)
             #     self.temp = True
 
+
         # self.spawn_timer = max(0, self.spawn_timer - 1)
         # if self.spawn_timer == 0:
-        #     self.spawn_timer = 100
-        #     x = random.randint(0, self.height - 1)
-        #     y = random.randint(0, self.width - 1)
-        #     self.spawn(x, y, True)
+        #     self.spawn_timer = 50
+        #     self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
+        #     #self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
+        #
 
         # spawning
 
