@@ -6,10 +6,22 @@ import numpy as np
 import cv2
 
 GOOD_APPLE_SCORE = 100
-POISON_VALUE = 1000
-MOVE_SPEED = .5
+POISON_VALUE = 800
+MOVE_SPEED = 1
+FROZEN_TIMER = 10
+EAT_PENALTY = 0
+PLAYER_LIFE = 30
 
-def rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
+def same_position(x0, y0, w0, h0, x1, y1, w1, h1):
+    return x0 == x1 and y0 == y1
+
+    # if not (x0 <= x1 <= x0 + w0 or x1 <= x0 <= x1 + w1):
+    #     return False
+    # if not (y0 <= y1 <= y0 + h0 or y1 <= y0 <= y1 + h1):
+    #     return False
+    # return True
+
+def rect_intersect_(x0, y0, w0, h0, x1, y1, w1, h1):
     if not (x0 <= x1 <= x0 + w0 or x1 <= x0 <= x1 + w1):
         return False
     if not (y0 <= y1 <= y0 + h0 or y1 <= y0 <= y1 + h1):
@@ -34,6 +46,7 @@ class NaivePolicy:
                 if agent.can_see(c) and dist < min_dist:
                     min_dist = dist
                     best = c
+                print(agent.can_see(c))
 
         if best is None:
             self.default_move_count -= 1
@@ -43,13 +56,13 @@ class NaivePolicy:
 
             return self.default_move
 
-        if best.x < agent.x and not (best.x <= agent.x <= best.x + best.size):
+        if best.x < agent.x:
             return MOVE_LEFT
-        if best.x > agent.x and not (agent.x <= best.x <= agent.x + agent.size):
+        if best.x > agent.x:
             return MOVE_RIGHT
-        if best.y < agent.y and not (best.y <= agent.y <= best.y + best.size):
+        if best.y < agent.y:
             return MOVE_UP
-        if best.y > agent.y and not (agent.y <= best.y <= agent.y + agent.size):
+        if best.y > agent.y:
             return MOVE_DOWN
 
         return NOTHING
@@ -138,12 +151,22 @@ class Player(Drawable):
 
         self.poisoned = False
         self.poison_timer = 0
-        self.POISON_DURATION = 200
+        self.POISON_DURATION = 1
         self.delayed_penalties = []
 
         self.automate = False
         self.env = None
         self.default_policy = NaivePolicy()
+
+        self.frozen_timer = 0
+
+        self.life = PLAYER_LIFE
+
+    def is_frozen(self):
+        return self.frozen_timer > 0
+
+    def freeze(self):
+        self.frozen_timer = FROZEN_TIMER
 
     def reset(self):
         self.x = self.orig_x
@@ -154,9 +177,19 @@ class Player(Drawable):
         self.delayed_penalties = []
         self.v_x = 0
         self.v_y = 0
+        self.life = PLAYER_LIFE
 
     def update(self):
+        self.life = max(0, self.life - 1)
+
+        #######################
+        if self.life == 0:
+            self.env.kill = True
+        #######################
+
         self.poison_timer = max(0, self.poison_timer - 1)
+        self.frozen_timer = max(0, self.frozen_timer - 1)
+
         if self.poison_timer == 0:
             self.poisoned = False
 
@@ -180,7 +213,11 @@ class Player(Drawable):
         if isinstance(item, Apple):
             if item.is_good:
                 self.score += GOOD_APPLE_SCORE
+                self.life = PLAYER_LIFE
             else:
+                #self.score = 0
+                #self.env.kill = False
+                #self.score -= POISON_VALUE
                 self.poisoned = True
                 self.poison_timer = self.POISON_DURATION
                 self.delayed_penalties.append(self.POISON_DURATION)
@@ -193,9 +230,11 @@ class Player(Drawable):
             self.score -= 200
 
     def can_see(self, entity : Drawable):
+        # TODO: broken
+
         c_x, c_y = self.x + self.size / 2, self.y + self.size / 2
-        x0, y0 = c_x - self.vis_range / 2, c_y - self.vis_range / 2
-        return rect_intersect(x0, y0, self.vis_range, self.vis_range, entity.x, entity.y, entity.size, entity.size)
+        x0, y0 = c_x - self.vis_range, c_y - self.vis_range
+        return rect_intersect_(x0, y0, self.vis_range * 2, self.vis_range * 2, entity.x, entity.y, entity.size, entity.size)
 
 class Collectible(Drawable):
     def __init__(self, x, y, size):
@@ -226,6 +265,8 @@ class World:
         self.spawn_timer = 0
 
         self.temp = True
+        self.kill = False
+        self.b = True
 
     def register_players(self, players):
         for p in players:
@@ -233,60 +274,22 @@ class World:
             p.env = self
 
     def update(self):
-        for player in self.players:
-            player.score -= 1
-
-        n = sum([1 for c in self.collectibles if c.is_good])
-        if n < 2:
-            for _ in range(2 - n):
-                self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
-
-        self.spawn_timer = max(0, self.spawn_timer - 1)
-        if self.spawn_timer == 0:
-            self.spawn_timer = 600
-            self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
-
-
-        # if sum([1 for c in self.collectibles if not c.is_good]) == 0:
-        #     self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
-
-            # if self.temp:
-            #     self.spawn(self.width - 1, 0, True)
-            #     self.temp = False
-            # else:
-            #     self.spawn(0, self.height - 1, True)
-            #     self.temp = True
-
-
-        # self.spawn_timer = max(0, self.spawn_timer - 1)
-        # if self.spawn_timer == 0:
-        #     self.spawn_timer = 50
-        #     self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), True)
-        #     #self.spawn(random.randint(0, self.width - 1), random.randint(0, self.height - 1), False)
-        #
-
-        # spawning
-
-        # for i in range(self.height):
-        #     for j in range(self.width):
-        #         if random.randint(0, 1000000) < 45:
-        #             self.spawn(i, j, random.random() < 1)
+        # for player in self.players:
+        #     player.score -= 1
 
         # movement
         for player in self.players:
             player.update()
-            player.y = min(max(player.y + player.v_y, 0), self.height - player.size)
-            player.x = min(max(player.x + player.v_x, 0), self.width - player.size)
 
-        removals = []
-        for projectile in self.projectiles:
-            projectile.y = min(max(projectile.y + projectile.v_y, 0), self.height - projectile.size)
-            projectile.x = min(max(projectile.x + projectile.v_x, 0), self.width - projectile.size)
-
-            if projectile.y in [0, self.height - projectile.size] or projectile.x in [0, self.width - projectile.size]:
-                removals.append(projectile)
-        for p in removals:
-            self.projectiles.remove(p)
+        # removals = []
+        # for projectile in self.projectiles:
+        #     projectile.y = min(max(projectile.y + projectile.v_y, 0), self.height - projectile.size)
+        #     projectile.x = min(max(projectile.x + projectile.v_x, 0), self.width - projectile.size)
+        #
+        #     if projectile.y in [0, self.height - projectile.size] or projectile.x in [0, self.width - projectile.size]:
+        #         removals.append(projectile)
+        # for p in removals:
+        #     self.projectiles.remove(p)
 
         # collision
         for p in self.players:
@@ -295,20 +298,55 @@ class World:
             for c in self.collectibles:
                 x1, y1, w1, h1 = c.x, c.y, c.size, c.size
 
-                if rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
+                if same_position(x0, y0, w0, h0, x1, y1, w1, h1):
                     p.collect(c)
                     self.collectibles.remove(c)
+        #
+        #     for c in self.projectiles:
+        #         if p == c.player:
+        #             continue
+        #
+        #         x1, y1, w1, h1 = c.x, c.y, c.size, c.size
+        #
+        #         if same_position(x0, y0, w0, h0, x1, y1, w1, h1):
+        #             c.player.punish(p)
+        #             self.projectiles.remove(c)
 
-            for c in self.projectiles:
-                if p == c.player:
+        n = sum([1 for c in self.collectibles if c.is_good])
+        if n < 1:
+            while True:
+                if self.b:
+                    x = 9 #random.randint(0, self.width - 1)
+                    y = 9 #random.randint(0, self.height - 1)
+                    self.b = False
+                else:
+                    x = 0
+                    y = 0
+                    self.b = True
+                x = random.randint(0, self.width - 1)
+                y = random.randint(0, self.height - 1)
+                flag = False
+                for c in self.collectibles:
+                    if c.x == x and c.y == y:
+                        flag = True
+                if flag:
                     continue
+                self.spawn(x, y, True)
+                break
 
-                x1, y1, w1, h1 = c.x, c.y, c.size, c.size
-
-                if rect_intersect(x0, y0, w0, h0, x1, y1, w1, h1):
-                    c.player.punish(p)
-                    self.projectiles.remove(c)
-
+        n = sum([1 for c in self.collectibles if not c.is_good])
+        if n == -1:
+            x = 5#random.randint(0, self.width - 1)
+            y = 5#random.randint(0, self.height - 1)
+            flag = False
+            for player in self.players:
+                if player.x == x and player.y == y:
+                    flag = True
+            for c in self.collectibles:
+                if c.x == x and c.y == y:
+                    flag = True
+            if not flag:
+                self.spawn(x, y, False)
 
     def spawn(self, x, y, is_good):
         self.collectibles.append(Apple(x, y, is_good))
@@ -321,10 +359,7 @@ class World:
 
         view.screen.fill((0, 0, 0))
         rect_x0, rect_y0 = view.to_screen_coords(0, 0)
-        pygame.draw.rect(view.screen, (116, 89, 128), pygame.Rect(rect_x0, rect_y0, view.to_screen_size(self.width), view.to_screen_size(self.height)))
-
-        for ply in self.players:
-            ply.draw(view)
+        pygame.draw.rect(view.screen, (255, 255, 255), pygame.Rect(rect_x0, rect_y0, view.to_screen_size(self.width), view.to_screen_size(self.height)))
 
         for collectible in self.collectibles:
             collectible.draw(view)
@@ -332,7 +367,10 @@ class World:
         for projectile in self.projectiles:
             projectile.draw(view)
 
-        pygame.display.set_caption('Score : ' + str(view.player.score))
+        for ply in self.players:
+            ply.draw(view)
+
+        pygame.display.set_caption('Score : ' + str(view.player.score) + 'Life: ' + str(view.player.life))
 
         if display_score:
             score_board = []
@@ -357,39 +395,65 @@ class World:
         elif action == MOVE_RIGHT:
             player.v_y = 0
             player.v_x = MOVE_SPEED
-        elif action == SHOOT_LEFT:
-            self.spawn_projectile(player.x, player.y, -1, 0, player)
-        elif action == SHOOT_RIGHT:
-            self.spawn_projectile(player.x, player.y, 1, 0, player)
-        elif action == SHOOT_UP:
-            self.spawn_projectile(player.x, player.y, 0, -1, player)
-        elif action == SHOOT_DOWN:
-            self.spawn_projectile(player.x, player.y, 0, 1, player)
-        elif action == NOTHING:
+        # elif action == SHOOT_LEFT:
+        #     self.spawn_projectile(player.x, player.y, -1, 0, player)
+        # elif action == SHOOT_RIGHT:
+        #     self.spawn_projectile(player.x, player.y, 1, 0, player)
+        # elif action == SHOOT_UP:
+        #     self.spawn_projectile(player.x, player.y, 0, -1, player)
+        # elif action == SHOOT_DOWN:
+        #     self.spawn_projectile(player.x, player.y, 0, 1, player)
+        else:
             player.v_y = 0
             player.v_x = 0
+
+        if action == EAT:
+            eaten = False
+            for c in self.collectibles:
+                if abs(c.x - player.x) <= 0 and abs(c.y - player.y) <= 0:
+                    player.collect(c)
+                    self.collectibles.remove(c)
+                    eaten = True
+            if not eaten:
+                player.score -= EAT_PENALTY
+
+        player.y = min(max(player.y + player.v_y, 0), self.height - player.size)
+        player.x = min(max(player.x + player.v_x, 0), self.width - player.size)
 
     def get_score(self, player : Player):
         return player.score
 
     def screenshot(self, view, out_w, out_h):
-        """
-        Takes a screenshot of the game , converts it to grayscale, reshapes it to size INPUT_HEIGHT, INPUT_WIDTH,
-        and returns a np.array.
-        Credits goes to https://github.com/danielegrattarola/deep-q-snake/blob/master/snake.py
-        """
-        data = pygame.image.tostring(view.screen, 'RGB')  # Take screenshot
+        data = pygame.image.tostring(view.screen, 'RGB')
         image = Image.frombytes('RGB', (view.screen_width, view.screen_height), data)
 
         image = np.asarray(image)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         return cv2.resize(image, (out_w, out_h), interpolation = cv2.INTER_AREA)
 
-        # image = image.convert('L')  # Convert to greyscale
-        # image = image.resize((out_w, out_h))
-        # matrix = np.asarray(image.getdata(), dtype=np.uint8)
-        # matrix = (matrix - 128) / (128 - 1)  # Normalize from -1 to 1
-        # return matrix.reshape(image.size[0], image.size[1])
+    def screenshot_basic(self, view):
+        M = np.zeros((self.width, self.height))
+
+        for c in self.collectibles:
+            M[c.y, c.x] = 2 if c.is_good else 3
+
+        for player in self.players:
+            M[player.y, player.x] = 1
+
+        return M
+
+    def screenshot_positions(self):
+        good = [x for x in self.collectibles if x.is_good][0]
+        #bad = [x for x in self.collectibles if not x.is_good][0]
+        return np.array([[
+            self.players[0].x,
+            self.players[0].y,
+            good.x,
+            good.y,
+            self.players[0].life
+            # bad.x,
+            # bad.y
+        ]])
 
     def reset(self):
         self.collectibles = []
@@ -397,6 +461,8 @@ class World:
 
         for player in self.players:
             player.reset()
+
+        self.kill = False
 
 if __name__ == '__main__':
     import time
