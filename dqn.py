@@ -8,8 +8,8 @@ import pygame
 from env import Player, World
 import torch
 
-SIZE_W = 5  # 6
-SIZE_H = 1  # 1
+SIZE_W = 84 # 6
+SIZE_H = 84 # 1
 NUM_ACTIONS = 4
 MEMORY_CAPACITY = 30000
 LR = 0.001
@@ -17,7 +17,7 @@ E = 0.05
 Q_NETWORK_ITERATION = 100
 BATCH_SIZE = 32
 GAMMA = 0.90
-EPISODES = 10000
+EPISODES = 1000000
 FRAMES = 3000
 SPEEDUP = 100
 FRAME_SKIP = 1
@@ -89,7 +89,7 @@ class DQN:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(self.device)
-        self.eval_net, self.target_net = NetBasic().to(self.device), NetBasic().to(self.device)
+        self.eval_net, self.target_net = Net().to(self.device), Net().to(self.device)
         self.memory = torch.zeros((MEMORY_CAPACITY, STATE_SIZE * 2 + 2)).to(self.device)
         self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
         self.loss_func = nn.MSELoss()  # nn.CrossEntropyLoss()
@@ -100,7 +100,8 @@ class DQN:
     def choose_action(self, state):
         # E_ = .5 if self.steps < 100 else 1 / (5 * np.log(self.steps))
         # E_ = 1 / (2 * np.log(0.001 * self.steps + 1.8))
-        E_ = max(0.02, - 1 / 20000 * self.steps + 0.9)
+        E_ = max(0.001, - 1 / 20000 * self.steps + 0.9)
+        #print(f'Epsilon: {E_}')
         k = np.random.rand()
 
         if k >= E_:
@@ -155,7 +156,7 @@ if __name__ == '__main__':
 
     running = True
 
-    env = World(10, 10)
+    env = World(5, 5)
 
     my_player = Player('Alex', 0, 0, 2)
     my_player.automate = False
@@ -191,12 +192,12 @@ if __name__ == '__main__':
             env.update()
 
             if frame_idx % FRAME_SKIP == 0:
-                # image = torch.Tensor(env.screenshot(my_player.view, SIZE_W, SIZE_H))
-                # image = (image - 128) / (128 - 1)
+                image = torch.Tensor(env.screenshot(my_player.view, SIZE_W, SIZE_H))
+                image = (image - 128) / (128 - 1)
 
                 # image = torch.Tensor(env.screenshot_basic(my_player.view))
 
-                image = torch.Tensor(env.screenshot_positions())
+                #image = torch.Tensor(env.screenshot_positions())
 
                 for k in range(STACK_SIZE):
                     image_buffer[k] = image_buffer[k + 1]

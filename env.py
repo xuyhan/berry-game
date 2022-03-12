@@ -6,11 +6,13 @@ import numpy as np
 import cv2
 
 GOOD_APPLE_SCORE = 100
-POISON_VALUE = 800
+POISON_VALUE = 2000
 MOVE_SPEED = 1
 FROZEN_TIMER = 10
 EAT_PENALTY = 0
-PLAYER_LIFE = 30
+PLAYER_LIFE = 400
+
+import random as random
 
 def same_position(x0, y0, w0, h0, x1, y1, w1, h1):
     return x0 == x1 and y0 == y1
@@ -134,7 +136,7 @@ class Player(Drawable):
         super().__init__(x, y, size=1)
 
         self.orig_x, self.orig_y = x, y
-        self.vis_range = 10
+        self.vis_range = 5
         self.view = View(self)
 
         self.v_x = 0
@@ -151,7 +153,7 @@ class Player(Drawable):
 
         self.poisoned = False
         self.poison_timer = 0
-        self.POISON_DURATION = 1
+        self.POISON_DURATION = 2
         self.delayed_penalties = []
 
         self.automate = False
@@ -180,6 +182,8 @@ class Player(Drawable):
         self.life = PLAYER_LIFE
 
     def update(self):
+        self.score += 0
+
         self.life = max(0, self.life - 1)
 
         #######################
@@ -218,6 +222,9 @@ class Player(Drawable):
                 #self.score = 0
                 #self.env.kill = False
                 #self.score -= POISON_VALUE
+                #self.env.kill = True
+                #self.score -= 10
+
                 self.poisoned = True
                 self.poison_timer = self.POISON_DURATION
                 self.delayed_penalties.append(self.POISON_DURATION)
@@ -268,6 +275,18 @@ class World:
         self.kill = False
         self.b = True
 
+        self.random_positions = []
+        #random.seed(333)
+        for _ in range(2000):
+            self.random_positions.append((random.randint(1, self.width - 2), random.randint(1, self.height - 2)))
+        self.position_pointer_ = 0
+
+        self.random_positions_good = []
+        for _ in range(2000):
+            self.random_positions_good.append((random.randint(0, self.width - 1), random.randint(0, self.height - 1)))
+        self.position_pointer = 0
+
+
     def register_players(self, players):
         for p in players:
             self.players.append(p)
@@ -300,53 +319,54 @@ class World:
 
                 if same_position(x0, y0, w0, h0, x1, y1, w1, h1):
                     p.collect(c)
+                    #if c.is_good:
                     self.collectibles.remove(c)
-        #
-        #     for c in self.projectiles:
-        #         if p == c.player:
-        #             continue
-        #
-        #         x1, y1, w1, h1 = c.x, c.y, c.size, c.size
-        #
-        #         if same_position(x0, y0, w0, h0, x1, y1, w1, h1):
-        #             c.player.punish(p)
-        #             self.projectiles.remove(c)
+
+            for c in self.projectiles:
+                if p == c.player:
+                    continue
+
+                x1, y1, w1, h1 = c.x, c.y, c.size, c.size
+
+                if same_position(x0, y0, w0, h0, x1, y1, w1, h1):
+                    c.player.punish(p)
+                    self.projectiles.remove(c)
 
         n = sum([1 for c in self.collectibles if c.is_good])
-        if n < 1:
-            while True:
-                if self.b:
-                    x = 9 #random.randint(0, self.width - 1)
-                    y = 9 #random.randint(0, self.height - 1)
-                    self.b = False
-                else:
-                    x = 0
-                    y = 0
-                    self.b = True
-                x = random.randint(0, self.width - 1)
-                y = random.randint(0, self.height - 1)
-                flag = False
-                for c in self.collectibles:
-                    if c.x == x and c.y == y:
-                        flag = True
-                if flag:
-                    continue
-                self.spawn(x, y, True)
-                break
+        if n == 0:
+            for _ in range(3):
+                while True:
+                    # if self.b:
+                    #     x = 2 #random.randint(0, self.width - 1)
+                    #     y = 4 #random.randint(0, self.height - 1)
+                    #     self.b = False
+                    # else:
+                    #     x = 4
+                    #     y = 7
+                    #     self.b = True
+                    x, y = self.random_positions_good[self.position_pointer]
+                    self.position_pointer = (self.position_pointer + 1) % 2000
+                    flag = False
+                    for c in self.collectibles:
+                        if c.x == x and c.y == y:
+                            flag = True
+                    if flag:
+                        continue
+                    self.spawn(x, y, True)
+                    break
 
         n = sum([1 for c in self.collectibles if not c.is_good])
-        if n == -1:
-            x = 5#random.randint(0, self.width - 1)
-            y = 5#random.randint(0, self.height - 1)
+        co = 0
+        while co < 2 - n:
+            x, y = self.random_positions[self.position_pointer_ % 2000]
             flag = False
-            for player in self.players:
-                if player.x == x and player.y == y:
-                    flag = True
             for c in self.collectibles:
                 if c.x == x and c.y == y:
                     flag = True
             if not flag:
                 self.spawn(x, y, False)
+                co += 1
+            self.position_pointer_ += 1
 
     def spawn(self, x, y, is_good):
         self.collectibles.append(Apple(x, y, is_good))
@@ -444,16 +464,16 @@ class World:
 
     def screenshot_positions(self):
         good = [x for x in self.collectibles if x.is_good][0]
-        #bad = [x for x in self.collectibles if not x.is_good][0]
-        return np.array([[
+
+        arr = [
             self.players[0].x,
             self.players[0].y,
             good.x,
             good.y,
             self.players[0].life
-            # bad.x,
-            # bad.y
-        ]])
+        ]
+
+        return np.array([arr])
 
     def reset(self):
         self.collectibles = []
@@ -463,6 +483,8 @@ class World:
             player.reset()
 
         self.kill = False
+        self.b = True
+        self.position_pointer = 0
 
 if __name__ == '__main__':
     import time
